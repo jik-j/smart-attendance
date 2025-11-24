@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Classroom Attendance Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .log-entry {
+            transition: all 0.3s ease-out;
+            font-size: 0.8rem;
+        }
+        .text-in-range { color: #10b981; } /* Emerald */
+        .text-out-range { color: #f59e0b; } /* Amber */
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 sm:p-8 font-sans">
+
+    <div class="max-w-4xl mx-auto bg-white shadow-xl rounded-xl p-6 md:p-10">
+        <h1 class="text-3xl font-extrabold text-blue-800 mb-2">Smart Attendance Monitoring</h1>
+        <p class="text-gray-500 mb-6">Real-Time Simulation of Geo-Fencing and Biometric Attendance Logic</p>
+
+        <!-- Configuration and Initial Status -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8 text-sm">
+            <div id="student-info" class="bg-blue-50 p-4 rounded-lg shadow-md">
+                <p class="font-bold text-blue-700">Student: Alice Smith (ID: 101)</p>
+                <p>Duration: 120 min</p>
+            </div>
+            <div id="tolerance-info" class="bg-purple-50 p-4 rounded-lg shadow-md">
+                <p class="font-bold text-purple-700">Tolerance</p>
+                <p>Absence: 15 min</p>
+            </div>
+            <div id="auth-status" class="bg-yellow-50 p-4 rounded-lg shadow-md">
+                <p class="font-bold text-yellow-700">Authentication</p>
+                <p id="auth-message" class="text-yellow-900">Pending...</p>
+            </div>
+        </div>
+
+        <!-- Live Monitoring Feed -->
+        <div class="mb-8">
+            <h2 class="text-xl font-semibold text-gray-700 mb-3 border-b pb-2">Live Monitoring Cycles</h2>
+            <div id="log-container" class="bg-gray-50 p-4 rounded-lg h-64 overflow-y-auto border border-gray-200 shadow-inner">
+                <!-- Log entries will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Final Attendance Report -->
+        <div class="bg-blue-900 text-white p-6 rounded-lg shadow-2xl">
+            <h2 class="text-2xl font-bold mb-3">FINAL ATTENDANCE REPORT</h2>
+            <div id="final-report-container">
+                <p>Calculation will appear after simulation completes.</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- 1. CONFIGURATION CONSTANTS ---
+        const CLASS_DURATION_MINUTES = 120;
+        const ABSENCE_TOLERANCE_MINUTES = 15;
+        const SAMPLE_INTERVAL_SECONDS = 30;
+
+        // --- 2. DATA STRUCTURES (C to JS Mapping) ---
+        const AuthType = {
+            NONE: 0,
+            FINGERPRINT: 1,
+            FACE: 2
+        };
+
+        const STUDENT_PROFILE = {
+            student_id: 101,
+            name: "Alice Smith",
+            biometrics_status: AuthType.FACE,
+            record: {
+                time_in: null,
+                last_check: null,
+                is_in_range: false,
+                is_authorized: false,
+                continuous_in_range_seconds: 0,
+                time_outside_range_seconds: 0,
+                attendance_percentage: 0.0
+            }
+        };
+
+        let student = JSON.parse(JSON.stringify(STUDENT_PROFILE));
+        let cycle = 0;
+        const totalCycles = (CLASS_DURATION_MINUTES * 60) / SAMPLE_INTERVAL_SECONDS;
+
+        // --- 3. CORE LOGIC FUNCTIONS (C to JS Translation) ---
+
+        /**
+         * Simulates biometric verification.
+         */
+        function authenticateBiometrics(s) {
+            if (s.biometrics_status !== AuthType.NONE) {
+                s.record.is_authorized = true;
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * Simulates geo-fencing check (90% chance of being in range).
+         */
+        function checkGeoFencing() {
+            // After cycle 100, reduce the chance of being in range to simulate leaving
+            let rangeChance = cycle < 100 ? 95 : 80;
+            return Math.random() * 100 < rangeChance;
+        }
+
+        /**
+         * Updates the student's attendance time based on location check (C's update_attendance_time).
+         */
+        function updateAttendanceTime(s, currentTime) {
+            const lastCheckTime = s.record.last_check || currentTime;
+            const elapsedTime = (currentTime - lastCheckTime) / 1000; // Time in seconds
+            s.record.last_check = currentTime;
+
+            if (s.record.is_in_range) {
+                s.record.continuous_in_range_seconds += elapsedTime;
+                s.record.time_outside_range_seconds = 0;
+            } else {
+                s.record.time_outside_range_seconds += elapsedTime;
+
+                const toleranceSeconds = ABSENCE_TOLERANCE_MINUTES * 60;
+                
+                if (s.record.time_outside_range_seconds > toleranceSeconds) {
+                    
+                    const excessTime = s.record.time_outside_range_seconds - toleranceSeconds;
+                    
+                    s.record.continuous_in_range_seconds -= excessTime;
+                    
+                    if (s.record.continuous_in_range_seconds < 0) {
+                        s.record.continuous_in_range_seconds = 0;
+                    }
+                    
+                    s.record.time_outside_range_seconds = toleranceSeconds;
+                }
+            }
+        }
+
+        /**
+         * Calculates the final attendance percentage (C's calculate_final_percentage).
+         */
+        function calculateFinalPercentage(s) {
+            const expectedTimeSeconds = CLASS_DURATION_MINUTES * 60;
+            
+            let attendanceTime = s.record.continuous_in_range_seconds;
+            
+            if (attendanceTime > expectedTimeSeconds) {
+                attendanceTime = expectedTimeSeconds;
+            }
+            
+            s.record.attendance_percentage = (attendanceTime / expectedTimeSeconds) * 100.0;
+        }
+
+        // --- 4. DOM UPDATE FUNCTIONS ---
+
+        const logContainer = document.getElementById('log-container');
+        const authMessage = document.getElementById('auth-message');
+        const finalReportContainer = document.getElementById('final-report-container');
+
+        function appendLog(message, isInRange) {
+            const logEntry = document.createElement('p');
+            logEntry.className = `log-entry ${isInRange ? 'text-in-range' : 'text-out-range'}`;
+            logEntry.textContent = message;
+            logContainer.appendChild(logEntry);
+            // Auto-scroll to the bottom
+            logContainer.scrollTop = logContainer.scrollHeight;
+
+            // Remove old entries to prevent memory overflow (keeping last 100)
+            while (logContainer.children.length > 100) {
+                logContainer.removeChild(logContainer.firstChild);
+            }
+        }
+
+        function displayFinalReport() {
+            calculateFinalPercentage(student);
+            const attendedMinutes = Math.floor(student.record.continuous_in_range_seconds / 60);
+
+            finalReportContainer.innerHTML = `
+                <p class="mb-2">Recorded Attendance Time: <span class="font-semibold">${attendedMinutes} minutes</span></p>
+                <p class="text-4xl font-extrabold text-green-300">${student.record.attendance_percentage.toFixed(2)}%</p>
+            `;
+        }
+
+        // --- 5. SIMULATION LOOP ---
+
+        function runSimulationCycle() {
+            cycle++;
+            
+            if (cycle > totalCycles) {
+                // End of simulation
+                displayFinalReport();
+                return;
+            }
+
+            const currentTime = Date.now();
+            
+            student.record.is_in_range = checkGeoFencing();
+            
+            updateAttendanceTime(student, currentTime);
+            
+            const totalAttendedMinutes = Math.floor(student.record.continuous_in_range_seconds / 60);
+            const outsideMinutes = Math.floor(student.record.time_outside_range_seconds / 60);
+            const statusText = student.record.is_in_range ? 'YES' : 'NO';
+
+            const logMessage = `[Cycle ${String(cycle).padStart(3, '0')}/${totalCycles}] In Range: ${statusText} | Attended: ${totalAttendedMinutes} min | Outside: ${outsideMinutes} min`;
+            
+            appendLog(logMessage, student.record.is_in_range);
+            
+            if (cycle === totalCycles) {
+                appendLog("--- Class Ended ---", true);
+            }
+
+            // Continue the loop using the actual time interval
+            setTimeout(runSimulationCycle, SAMPLE_INTERVAL_SECONDS * 100); // Speed up simulation 10x
+        }
+
+        // --- 6. INITIALIZATION ---
+
+        function initializeAttendance() {
+            student.record.time_in = Date.now();
+            student.record.last_check = student.record.time_in;
+            
+            // Step 1: Biometric Check
+            if (authenticateBiometrics(student)) {
+                authMessage.textContent = "SUCCESSFUL (Face Scan)";
+                authMessage.className = "text-green-600 font-bold";
+                appendLog("-> STEP 1: Biometric Authentication SUCCESSFUL. Monitoring started.", true);
+                
+                // Start the loop after a brief delay
+                setTimeout(runSimulationCycle, 1000); 
+            } else {
+                authMessage.textContent = "FAILED. Attendance not started.";
+                authMessage.className = "text-red-600 font-bold";
+                appendLog("-> STEP 1: Authentication FAILED. Simulation aborted.", false);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initializeAttendance);
+    </script>
+</body>
+</html>
